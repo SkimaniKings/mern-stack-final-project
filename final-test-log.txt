@@ -1,0 +1,56 @@
+=== Final Test - 2025-05-31T08:48:55.782Z ===
+
+[2025-05-31T08:48:55.789Z] Starting final test...
+[2025-05-31T08:48:55.791Z] Checking for .env.local at: C:\Users\kelvi.DRAC\Downloads\projects\react\funds\.env.local
+[2025-05-31T08:48:55.793Z] Successfully read .env.local
+[2025-05-31T08:48:55.794Z] Environment variables preview:
+{
+  "preview": "# ====================================\n# Supabase Configuration\n# ====================================\nNEXT_PUBLIC_SUPABASE_URL=https://oummldjpaqapqhblwjzq.supabase.co\nNEXT_PUBLIC_SUPABASE_ANON_KEY=***\nSUPABASE_SERVICE_ROLE_KEY=***\n\n# Database connection string for direct database access\nDATABASE_URL=postgresql://postgres:T2VmXob1mLibzmEu@db.oummldjpaqapqhblwjzq.supabase.co:5432/postgres\n\n# ====================================\n# API Keys (External Services)\n# ====================================\nFINNHUB_API_KEY=***\nUSE_REAL_FINNHUB_API=true\n\n# ====================================\n# Application Settings\n# ====================================\nNEXT_PUBLIC_BASE_URL=http://localhost:3000\nNEXT_PUBLIC_SITE_URL=http://localhost:3000\nNEXT_PUBLIC_SITE_NAME=\"dripcheck\"\nNEXT_PUBLIC_SITE_DESCRIPTION=\"flaunting responsibly\"\n\n# ====================================\n# Authentication & Security\n# ====================================\n# Set to true to bypass authentication (development only)\nNEXT_PUBLIC_SKIP_AUTH=false\n\n# JWT Configuration\nJWT_SECRET=***\n\n# Session Settings\nNEXTAUTH_SECRET=***\nNEXTAUTH_URL=http://localhost:3000\nNEXTAUTH_URL_INTERNAL=http://localhost:3000\n\n# ====================================\n# Development Settings\n# ====================================\n# Skip TypeScript checking (for development only)\nNEXT_SKIP_TYPE_CHECKING=true\n\n# Enable debug logging\nDEBUG=app:*,auth:*\n\n# ====================================\n# Feature Flags\n# ====================================\nNEXT_PUBLIC_ENABLE_ANALYTICS=false\nNEXT_PUBLIC_ENABLE_LOGGING=true\n\n# ====================================\n# Rate Limiting (if applicable)\n# ====================================\nRATE_LIMIT_WINDOW_MS=900000  # 15 minutes\nRATE_LIMIT_MAX_REQUESTS=100  # Max requests per window\n"
+}
+[2025-05-31T08:48:55.796Z] Loading environment variables...
+[2025-05-31T08:48:55.803Z] Environment variables status:
+{
+  "NEXT_PUBLIC_SUPABASE_URL": "***",
+  "SUPABASE_SERVICE_ROLE_KEY": "***"
+}
+[2025-05-31T08:48:55.807Z] ✅ All required environment variables are present
+[2025-05-31T08:48:55.809Z] 
+Testing Supabase connection...
+[2025-05-31T08:48:55.811Z] Initializing Supabase client...
+{
+  "url": "https://oummldjpaqapqhblwjzq.supabase.co",
+  "key": "eyJhbGciOi..."
+}
+[2025-05-31T08:48:55.818Z] Supabase client initialized
+[2025-05-31T08:48:55.822Z] Testing database connection...
+[2025-05-31T08:48:56.921Z] ✅ Successfully connected to Supabase!
+[2025-05-31T08:48:56.927Z] Sample data:
+[
+  {
+    "id": "998f8692-0c46-45fa-95df-7a5f264272f4",
+    "user_id": "a6ced411-bfa7-498f-82d3-49f7ee5d99bb",
+    "budget_item_id": null,
+    "merchant": "wakari",
+    "amount": 10,
+    "currency": "USD",
+    "expense_date": "2025-04-09T21:00:00+00:00",
+    "location_name": "Lusaka Road",
+    "location_geo": "0101000020E6100000B31C322FD16A42408BD4C5B7C19AF4BF",
+    "receipt_url": "receipt://hafsa.jpg",
+    "warranty_expiration_date": null,
+    "recurrence": "weekly",
+    "is_impulse": false,
+    "notes": null,
+    "created_at": "2025-05-01T08:10:27.364708+00:00",
+    "updated_at": "2025-05-15T18:32:33.753535+00:00",
+    "category_id": null,
+    "account_id": null,
+    "split_with_name": null,
+    "split_amount": null,
+    "category_ids": [],
+    "expense_id": "51fba8de-8db3-42a9-a47c-e421e1e6a71b"
+  }
+]
+[2025-05-31T08:48:56.934Z] 
+Test completed. Check the log file for details.
+[2025-05-31T08:48:56.943Z] Log file: C:\Users\kelvi.DRAC\Downloads\projects\react\funds\final-test-log.txt

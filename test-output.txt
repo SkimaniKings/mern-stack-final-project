@@ -1,0 +1,79 @@
+Test file created at: 2025-05-31T08:47:17.454Z
+Node.js version: v23.8.0
+Platform: win32 x64
+
+Environment Variables:
+NODE_ENV: not set
+SUPABASE_URL: not set
+
+Files in current directory:
+- .env
+- .env.local
+- .env.production
+- .git
+- .gitignore
+- .netlify
+- .next
+- .nojekyll
+- actions
+- app
+- backup
+- CHANGELOG.md
+- check-env.js
+- components
+- components.json
+- contexts
+- cUserskelvi.DRACDownloadsprojectsreactfundsappapiwatchlistaddroute.ts
+- db
+- eslint.config.mjs
+- fix-env-file.js
+- fix-supabase-url.js
+- hooks
+- http-test.js
+- lib
+- middleware.ts
+- netlify
+- netlify.toml
+- next-env.d.ts
+- next.config.js
+- next.config.mjs
+- next.config.ts
+- node_modules
+- out
+- package-lock.json
+- package.json
+- pages
+- pnpm-lock.yaml
+- postcss.config.mjs
+- public
+- README-NOTIFICATION-FIXES.md
+- README.md
+- run-milestone-migration-windows.js
+- run-milestone-migration.js
+- run-test.bat
+- run-test.ps1
+- scripts
+- simple-supabase-test.js
+- simple-test.js
+- src
+- styles
+- supabase
+- supabase-test-direct.txt
+- supabase-test-result.txt
+- supabase-url-test.txt
+- tailwind.config.ts
+- test-env-read-result.txt
+- test-env-read.js
+- test-env.ps1
+- test-fs.js
+- test-node.js
+- test-output.js
+- test-output.txt
+- test-supabase-connection.js
+- test-supabase-direct.js
+- test-supabase-url.js
+- tsconfig.json
+- tsconfig.tsbuildinfo
+- types
+- verify-supabase.js
+- windsurf_deployment.yaml

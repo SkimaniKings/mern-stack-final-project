@@ -1,0 +1,41 @@
+.nav-gradient {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  backdrop-filter: blur(10px);
+}
+
+.dark .nav-gradient {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.3) 100%);
+}
+
+.nav-item-hover {
+  transition: all 0.3s ease;
+}
+
+.nav-item-hover:hover {
+  transform: translateX(4px);
+}
+
+.nav-icon {
+  transition: all 0.3s ease;
+}
+
+.nav-item-hover:hover .nav-icon {
+  transform: scale(1.1);
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+.active-indicator {
+  animation: pulse 2s infinite;
+}
+

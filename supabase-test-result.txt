@@ -1,0 +1,10 @@
+=== Supabase Connection Test - 2025-05-31T08:35:38.175Z ===
+
+[2025-05-31T08:35:38.179Z] Starting Supabase connection test...
+[2025-05-31T08:35:38.184Z] Successfully read .env.local file
+[2025-05-31T08:35:38.186Z] Environment variables:
+{
+  "supabaseUrl": "*** URL found (hidden for security)",
+  "supabaseKey": "*** Key found (hidden for security)"
+}
+[2025-05-31T08:35:38.187Z] Initializing Supabase client...

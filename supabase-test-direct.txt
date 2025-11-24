@@ -1,0 +1,15 @@
+=== Supabase Direct Test - 2025-05-31T08:40:28.388Z ===
+
+[2025-05-31T08:40:28.392Z] Starting Supabase direct test...
+[2025-05-31T08:40:28.406Z] Successfully read .env.local file
+[2025-05-31T08:40:28.407Z] Environment variables:
+{
+  "supabaseUrl": "*** URL found",
+  "supabaseKey": "*** Key found"
+}
+[2025-05-31T08:40:28.414Z] Testing Supabase REST API...
+[2025-05-31T08:40:28.417Z] Error parsing Supabase URL:
+{
+  "url": "http",
+  "error": "Invalid URL"
+}

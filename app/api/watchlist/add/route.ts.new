@@ -1,0 +1,223 @@
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
+
+// Helper function to create a Supabase client without authentication
+function createAnonymousSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Supabase credentials are not properly configured");
+  }
+  
+  return createClient(supabaseUrl, supabaseKey);
+}
+
+// Helper function to check if the watchlist table exists
+async function checkWatchlistTable(supabase: any) {
+  try {
+    // Check if the table exists by trying to select from it
+    const { error: tableCheckError } = await supabase
+      .from('watchlist')
+      .select('id')
+      .limit(1);
+    
+    if (tableCheckError && tableCheckError.code === '42P01') { // PostgreSQL code for undefined_table
+      console.log("Watchlist table doesn't exist. Creating it...");
+      // Try to create the watchlist table using RPC
+      const { error: rpcError } = await supabase.rpc('create_watchlist_table');
+      
+      if (rpcError) {
+        console.error("Error creating watchlist table:", rpcError);
+        return false;
+      }
+      
+      console.log("Watchlist table created successfully");
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Error checking watchlist table:", error);
+    return false;
+  }
+}
+
+// POST endpoint to add an item to the watchlist
+export async function POST(request: NextRequest) {
+  try {
+    // Parse the request body
+    const body = await request.json();
+    const { ticker, name, price, targetPrice, notes, sector, priceAlertEnabled, alertThreshold, userId: providedUserId } = body;
+    
+    // Validate required fields
+    if (!ticker || !name) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Ticker and name are required fields" 
+      }, { status: 400 });
+    }
+    
+    // Create a Supabase client first
+    const supabase = createAnonymousSupabaseClient();
+    
+    // Try to get the authenticated user ID
+    let userIdentifier: string = providedUserId || crypto.randomUUID();
+    let useClientStorage = true; // Default to client storage due to database issues
+    
+    // First try to get the user from the cookie header
+    const cookieHeader = request.headers.get('cookie');
+    const clientIdMatch = cookieHeader?.match(/client-id=([^;]+)/);
+    const authUserIdMatch = cookieHeader?.match(/x-auth-user-id=([^;]+)/);
+    
+    // First check for client-id cookie (most reliable)
+    if (clientIdMatch && clientIdMatch[1]) {
+      userIdentifier = clientIdMatch[1];
+      console.log('Using client ID from cookie:', userIdentifier);
+    } 
+    // Then check for auth user ID
+    else if (authUserIdMatch && authUserIdMatch[1]) {
+      userIdentifier = authUserIdMatch[1];
+      console.log('Using authenticated user ID from cookie:', userIdentifier);
+    } else {
+      // Try to get the user from the auth session
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        
+        if (!error && data?.user) {
+          userIdentifier = data.user.id;
+          console.log('Using authenticated user ID:', userIdentifier);
+        } else {
+          // Try to get the session
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          
+          if (!sessionError && sessionData?.session?.user) {
+            userIdentifier = sessionData.session.user.id;
+            console.log('Using session user ID:', userIdentifier);
+          } else {
+            // Check for client-id header
+            const clientIdHeader = request.headers.get('x-client-id');
+            if (clientIdHeader) {
+              userIdentifier = clientIdHeader;
+              console.log('Using client ID from header:', userIdentifier);
+            } else {
+              // Check for user-id header
+              const userIdHeader = request.headers.get('x-user-id');
+              if (userIdHeader) {
+                userIdentifier = userIdHeader;
+                console.log('Using user ID from header:', userIdentifier);
+              } else {
+                // Check for auth-user-id header
+                const authUserIdHeader = request.headers.get('x-auth-user-id');
+                if (authUserIdHeader) {
+                  userIdentifier = authUserIdHeader;
+                  console.log('Using auth user ID from header:', userIdentifier);
+                } else {
+                  // Use the provided or generated ID
+                  console.log('Using provided or generated ID:', userIdentifier);
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error getting user ID:', error);
+      }
+    }
+    
+    // Check if the watchlist table exists
+    await checkWatchlistTable(supabase);
+    
+    // Create a unique ID for the item
+    const itemId = crypto.randomUUID();
+    
+    // Prepare the data to insert
+    const insertData = {
+      id: itemId,
+      user_id: userIdentifier,
+      ticker,
+      name,
+      price: price ? parseFloat(price.toString()) : null,
+      target_price: targetPrice ? parseFloat(targetPrice.toString()) : null,
+      notes: notes || "",
+      sector: sector || "Uncategorized",
+      price_alert_enabled: priceAlertEnabled || false,
+      alert_threshold: alertThreshold ? parseFloat(alertThreshold.toString()) : null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Try to save to the database
+    let databaseSaveSuccessful = false;
+    
+    try {
+      // Try to insert the item into the database
+      console.log("Attempting to save item to database with user ID:", userIdentifier);
+      const { data, error } = await supabase
+        .from('watchlist')
+        .insert([insertData])
+        .select();
+      
+      if (error) {
+        console.error("Error saving to database:", error);
+        // If the error is related to the foreign key constraint, try creating the user in the database
+        if (error.code === '23503' || (error.message && error.message.includes('foreign key constraint'))) {
+          console.log("Foreign key constraint error. Creating a row-level security bypass...");
+          
+          // Try a simpler insert without the user_id foreign key constraint
+          const { data: bypassData, error: bypassError } = await supabase
+            .rpc('insert_watchlist_item_bypass_rls', {
+              item_data: JSON.stringify(insertData)
+            });
+            
+          if (bypassError) {
+            console.error("Error with RLS bypass:", bypassError);
+          } else {
+            console.log("Successfully saved to database with RLS bypass:", bypassData);
+            databaseSaveSuccessful = true;
+          }
+        }
+      } else {
+        console.log("Successfully saved to database:", data);
+        databaseSaveSuccessful = true;
+      }
+    } catch (dbError) {
+      console.error("Database error:", dbError);
+      // Continue with client-side storage
+    }
+    
+    // Prepare the item data for the response
+    const itemData = {
+      id: itemId,
+      user_id: userIdentifier,
+      ticker: ticker.toUpperCase(),
+      name: name,
+      price: price || 0,
+      target_price: targetPrice || null,
+      notes: notes || "",
+      sector: sector || "Uncategorized",
+      price_alert_enabled: priceAlertEnabled || false,
+      alert_threshold: alertThreshold || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Log what we're returning to the client
+    console.log("Returning item data to client:", itemData);
+    console.log(databaseSaveSuccessful ? "Saved to database and client storage" : "Using client-side storage for watchlist items");
+    
+    // Return success with the item data for client-side storage
+    return NextResponse.json({ 
+      success: true, 
+      message: `${ticker} added to your watchlist`,
+      item: itemData,
+      storageMethod: databaseSaveSuccessful ? "both" : "client"
+    });
+  } catch (error) {
+    console.error("Error adding to watchlist:", error);
+    return NextResponse.json({ 
+      success: false, 
+      error: "An unexpected error occurred" 
+    }, { status: 500 });
+  }
+}

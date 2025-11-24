@@ -1,0 +1,5 @@
+# Path: supabase/config.toml
+
+# [project]
+# ref = "oummldjpaqapqhblwjzq"  # e.g. "abcdefg123456"
+# api_url = "https://oummldjpaqapqhblwjzq.supabase.co"

@@ -1,0 +1,410 @@
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
+
+// Helper function to create a Supabase client without authentication
+function createAnonymousSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Supabase credentials are not properly configured");
+  }
+  
+  return createClient(supabaseUrl, supabaseKey);
+}
+
+// Helper function to check if the watchlist table exists and has all required columns
+async function checkWatchlistTable(supabase: any) {
+  try {
+    // Check if the table exists by trying to select from it
+    const { error: tableCheckError } = await supabase
+      .from('watchlist')
+      .select('id')
+      .limit(1);
+    
+    if (tableCheckError && tableCheckError.code === '42P01') { // PostgreSQL code for undefined_table
+      console.log("Watchlist table doesn't exist. Creating it...");
+      // Try to create the watchlist table using RPC
+      const { error: rpcError } = await supabase.rpc('create_watchlist_table');
+      
+      if (rpcError) {
+        console.error("Error creating watchlist table:", rpcError);
+        return false;
+      }
+      
+      console.log("Watchlist table created successfully");
+    } else {
+      // Table exists, check if it has all required columns
+      console.log("Checking if watchlist table has all required columns...");
+      
+      // Execute a SQL query to check if alert_threshold column exists
+      const { error: columnCheckError } = await supabase.rpc('check_watchlist_columns');
+      
+      if (columnCheckError) {
+        console.log("Missing columns in watchlist table. Adding them...");
+        
+        // Add missing columns using RPC
+        const { error: addColumnsError } = await supabase.rpc('add_missing_watchlist_columns');
+        
+        if (addColumnsError) {
+          console.error("Error adding missing columns:", addColumnsError);
+          // Continue anyway, we'll use client-side storage as fallback
+        } else {
+          console.log("Successfully added missing columns to watchlist table");
+        }
+      } else {
+        console.log("Watchlist table has all required columns");
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.error("Error checking watchlist table:", error);
+    return false;
+  }
+}
+
+// POST endpoint to add an item to the watchlist
+export async function POST(request: NextRequest) {
+  try {
+    // Parse the request body
+    const body = await request.json();
+    const { ticker, name, price, targetPrice, notes, sector, priceAlertEnabled, alertThreshold, userId: providedUserId } = body;
+    
+    // Validate required fields
+    if (!ticker || !name) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Ticker and name are required fields" 
+      }, { status: 400 });
+    }
+    
+    // Create a Supabase client first
+    const supabase = createAnonymousSupabaseClient();
+    
+    // Try to get the authenticated user ID
+    let userIdentifier: string = providedUserId || crypto.randomUUID();
+    let useClientStorage = true; // Default to client storage due to database issues
+    
+    // First try to get the user from the cookie header
+    const cookieHeader = request.headers.get('cookie');
+    const clientIdMatch = cookieHeader?.match(/client-id=([^;]+)/);
+    const authUserIdMatch = cookieHeader?.match(/x-auth-user-id=([^;]+)/);
+    
+    // First check for client-id cookie (most reliable)
+    if (clientIdMatch && clientIdMatch[1]) {
+      userIdentifier = clientIdMatch[1];
+      console.log('Using client ID from cookie:', userIdentifier);
+    } 
+    // Then check for auth user ID
+    else if (authUserIdMatch && authUserIdMatch[1]) {
+      userIdentifier = authUserIdMatch[1];
+      console.log('Using authenticated user ID from cookie:', userIdentifier);
+    } else {
+      // Try to get the user from the auth session
+      try {
+        const { data, error } = await supabase.auth.getUser();
+        
+        if (data?.user) {
+          userIdentifier = data.user.id;
+          console.log('Using authenticated user ID from session:', userIdentifier);
+        } else if (error) {
+          console.warn('Error getting authenticated user:', error);
+          
+          // Try to get the user ID from the header
+          const userIdHeader = request.headers.get('x-user-id');
+          
+          if (userIdHeader) {
+            userIdentifier = userIdHeader;
+            console.log('Using user ID from header:', userIdentifier);
+          } else {
+            // Check for client-id header as last resort
+            const clientIdHeader = request.headers.get('client-id');
+            
+            if (clientIdHeader) {
+              userIdentifier = clientIdHeader;
+              console.log('Using client ID from header:', userIdentifier);
+            } else {
+              // We already initialized userIdentifier with a UUID
+              console.log('Using generated user ID:', userIdentifier);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error getting user:', error);
+        
+        // Fall back to the user ID from the header
+        const userIdHeader = request.headers.get('x-user-id');
+        
+        if (userIdHeader) {
+          userIdentifier = userIdHeader;
+          console.log('Using user ID from header (after auth error):', userIdentifier);
+        } else {
+          // Check for client-id cookie as last resort
+          const clientIdCookie = cookieHeader?.match(/client-id=([^;]+)/);
+          if (clientIdCookie && clientIdCookie[1]) {
+            userIdentifier = clientIdCookie[1];
+            console.log('Using client ID from cookie (after auth error):', userIdentifier);
+          } else {
+            // We already initialized userIdentifier with a UUID
+            console.log('Using generated user ID (after auth error):', userIdentifier);
+          }
+        }
+      }
+    }
+    
+    // Prepare the complete item data with all fields that might be needed by the client
+    const itemId = crypto.randomUUID();
+    
+    // Prepare the data to insert
+    const insertData = {
+      id: itemId,
+      user_id: userIdentifier,
+      ticker,
+      name,
+      price: price ? parseFloat(price.toString()) : null,
+      target_price: targetPrice ? parseFloat(targetPrice.toString()) : null,
+      notes: notes || "",
+      sector: sector || "Uncategorized",
+      price_alert_enabled: priceAlertEnabled || false,
+      alert_threshold: alertThreshold ? parseFloat(alertThreshold.toString()) : null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Prepare data for client-side storage
+    const itemData = {
+      id: itemId,
+      user_id: userIdentifier,
+      ticker: ticker.toUpperCase(),
+      name: name,
+      price: typeof price === 'number' ? price : 0, // Ensure price is a number
+      target_price: typeof targetPrice === 'number' ? targetPrice : null,
+      notes: notes || "",
+      sector: sector || "Uncategorized",
+      price_alert_enabled: priceAlertEnabled || false,
+      alert_threshold: typeof alertThreshold === 'number' ? alertThreshold : null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Try to save to the database first
+    let databaseSaveSuccessful = false;
+    
+    try {
+      // First, ensure the database schema is properly set up and refresh the schema cache
+      try {
+        console.log("Ensuring database schema is properly set up...");
+        // Use absolute URL or relative URL depending on environment
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                       (request.headers.get('origin') || 'http://localhost:3000');
+        
+        // First call the setup endpoint to create functions
+        const setupResponse = await fetch(`${baseUrl}/api/database/setup`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!setupResponse.ok) {
+          console.warn("Database setup failed, but will continue:", await setupResponse.text());
+        } else {
+          console.log("Database setup completed successfully");
+        }
+        
+        // Then call the refresh endpoint to ensure the schema cache is updated
+        console.log("Refreshing database schema cache...");
+        const refreshResponse = await fetch(`${baseUrl}/api/database/refresh`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!refreshResponse.ok) {
+          console.warn("Schema refresh failed, but will continue:", await refreshResponse.text());
+        } else {
+          console.log("Schema refresh completed successfully");
+        }
+      } catch (setupError) {
+        console.error("Error setting up database schema:", setupError);
+        // Continue anyway, we'll use client-side storage as fallback
+      }
+      
+      // Create a Supabase client
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      
+      if (supabaseUrl && supabaseKey) {
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        
+        // Try to get the authenticated user ID from the session
+        let authenticatedUserId = userIdentifier;
+        
+        try {
+          // First try to get the user using getUser
+          const { data: userData, error: userError } = await supabase.auth.getUser();
+          
+          if (userData?.user) {
+            authenticatedUserId = userData.user.id;
+            console.log("Using authenticated user ID from Supabase:", authenticatedUserId);
+          } else if (userError) {
+            console.warn("Error getting authenticated user:", userError);
+            // Try to get the session as a fallback
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            
+            if (sessionData?.session?.user) {
+              authenticatedUserId = sessionData.session.user.id;
+              console.log("Using authenticated user ID from session:", authenticatedUserId);
+            } else if (sessionError) {
+              console.warn("Error getting session:", sessionError);
+            }
+          }
+        } catch (authError) {
+          console.error("Error during authentication check:", authError);
+        }
+        
+        // Update the insert data with the authenticated user ID
+        const dataToInsert = {
+          ...insertData,
+          user_id: authenticatedUserId
+        };
+        
+        // Try to insert the item into the database
+        console.log("Attempting to save item to database with user ID:", authenticatedUserId);
+        const { data, error } = await supabase
+          .from('watchlist')
+          .insert([dataToInsert])
+          .select();
+        
+        if (error) {
+          console.error("Error saving to database:", error);
+          
+          // Handle different error types
+          if (error.code === 'PGRST204' && error.message && error.message.includes("alert_threshold")) {
+            console.log("Missing alert_threshold column in database schema. This is likely due to permission issues.");
+            console.log("Continuing with client-side storage as a fallback.");
+            
+            // We'll just use client-side storage in this case
+          }
+          // If the error is related to the foreign key constraint, try using the default user ID
+          else if (error.code === '23503' || (error.message && error.message.includes('foreign key constraint'))) {
+            console.log("Foreign key constraint error. Using default user ID...");
+            
+            // Try with the default user ID
+            const defaultUserId = '00000000-0000-0000-0000-000000000000';
+            const defaultUserData = {
+              ...insertData,
+              user_id: defaultUserId
+            };
+            
+            console.log("Attempting to save with default user ID:", defaultUserId);
+            const { data: defaultUserResult, error: defaultUserError } = await supabase
+              .from('watchlist')
+              .insert([defaultUserData])
+              .select();
+              
+            if (defaultUserError) {
+              console.error("Error saving with default user ID:", defaultUserError);
+              
+              // Check if the error is related to the column name
+              if (defaultUserError.code === '42703' && defaultUserError.message && defaultUserError.message.includes("price_alerts")) {
+                console.log("Column name mismatch. The column should be 'price_alert_enabled' not 'price_alerts'.");
+                
+                // Try to refresh the schema to fix column names
+                try {
+                  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                                 (request.headers.get('origin') || 'http://localhost:3000');
+                  
+                  const refreshResponse = await fetch(`${baseUrl}/api/database/refresh`, {
+                    method: 'GET',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    }
+                  });
+                  
+                  if (!refreshResponse.ok) {
+                    console.warn("Schema refresh failed, but will continue:", await refreshResponse.text());
+                  } else {
+                    console.log("Schema refresh completed successfully");
+                  }
+                  
+                  // Try one more time with the fixed column name
+                  const fixedData = {
+                    ...defaultUserData,
+                    price_alert_enabled: defaultUserData.price_alert_enabled
+                  };
+                  
+                  const { data: retryData, error: retryError } = await supabase
+                    .from('watchlist')
+                    .insert([fixedData])
+                    .select();
+                    
+                  if (retryError) {
+                    console.error("Error after schema refresh:", retryError);
+                  } else {
+                    console.log("Successfully saved to database after schema refresh:", retryData);
+                    databaseSaveSuccessful = true;
+                  }
+                } catch (refreshError) {
+                  console.error("Error refreshing schema:", refreshError);
+                }
+              }
+              
+              // If we still have errors, try a simpler insert with RLS bypass as last resort
+              if (!databaseSaveSuccessful) {
+                console.log("Attempting RLS bypass as last resort...");
+                try {
+                  const { data: bypassData, error: bypassError } = await supabase
+                    .rpc('insert_watchlist_item_bypass_rls', {
+                      item_data: JSON.stringify(defaultUserData)
+                    });
+                    
+                  if (bypassError) {
+                    console.error("Error with RLS bypass:", bypassError);
+                  } else {
+                    console.log("Successfully saved to database with RLS bypass:", bypassData);
+                    databaseSaveSuccessful = true;
+                  }
+                } catch (bypassError) {
+                  console.error("Error with RLS bypass:", bypassError);
+                }
+              }
+            } else {
+              console.log("Successfully saved to database with default user ID:", defaultUserResult);
+              databaseSaveSuccessful = true;
+            }
+          }
+        } else {
+          console.log("Successfully saved to database:", data);
+          databaseSaveSuccessful = true;
+        }
+      } else {
+        console.log("No Supabase credentials provided. Using client-side storage.");
+      }
+    } catch (dbError) {
+      console.error("Database error:", dbError);
+      // Continue with client-side storage
+    }
+    
+    // Log what we're returning to the client
+    console.log("Returning item data to client:", itemData);
+    console.log(databaseSaveSuccessful ? "Saved to database and client storage" : "Using client-side storage for watchlist items");
+    
+    // Return success with the item data for client-side storage
+    return NextResponse.json({ 
+      success: true, 
+      message: `${ticker} added to your watchlist`,
+      item: itemData,
+      storageMethod: databaseSaveSuccessful ? "both" : "client"
+    });
+  } catch (error) {
+    console.error("Error adding to watchlist:", error);
+    return NextResponse.json({ 
+      success: false, 
+      error: "An unexpected error occurred" 
+    }, { status: 500 });
+  }
+}

@@ -1,0 +1,334 @@
+"use server"
+
+import { createServerSupabaseClient } from "@/lib/supabase/server"
+import { revalidatePath } from "next/cache"
+import { v4 as uuidv4 } from "uuid"
+
+// Get the current user ID from the session
+export async function getCurrentUserId() {
+  const supabase = await createServerSupabaseClient();
+  if (!supabase) {
+    throw new Error("Failed to create Supabase client");
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) {
+    console.error("Error getting user:", error);
+    throw new Error("User not authenticated");
+  }
+
+  return user.id;
+}
+
+// Types based on the new income.sql schema
+export type IncomeRecurrenceFrequency = "weekly" | "bi_weekly" | "monthly" | "quarterly" | "semi_annual" | "annual" | "none";
+export type TaxType = "pre_tax" | "post_tax";
+
+export interface Income {
+  id: string;
+  user_id: string;
+  source_name: string;
+  amount: number;
+  currency: string;
+  category_id: string | null;
+  is_taxable: boolean;
+  tax_class: TaxType;
+  recurrence: IncomeRecurrenceFrequency;
+  start_date: string;
+  end_date: string | null;
+  notes: string | null;
+  monthly_equivalent_amount: number;
+  created_at: string;
+  updated_at: string;
+  category?: IncomeCategory;
+  deductions?: IncomeDeduction[];
+  hustles?: IncomeHustle[];
+}
+
+export interface IncomeCategory {
+  id: string;
+  user_id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IncomeDeduction {
+  id: string;
+  income_id: string;
+  name: string;
+  amount: number;
+  tax_class: TaxType;
+  created_at: string;
+}
+
+export interface IncomeHustle {
+  id: string;
+  user_id: string;
+  income_id: string;
+  hustle_name: string;
+  hustle_amount: number;
+  created_at: string;
+}
+
+// Helper function to convert amounts to monthly equivalent based on recurrence
+function convertToMonthlyAmount(amount: number, recurrence: IncomeRecurrenceFrequency): number {
+  switch (recurrence) {
+    case "weekly":
+      return amount * 52 / 12;
+    case "bi_weekly":
+      return amount * 26 / 12;
+    case "monthly":
+      return amount;
+    case "quarterly":
+      return amount / 3;
+    case "semi_annual":
+      return amount / 6;
+    case "annual":
+      return amount / 12;
+    default:
+      return amount;
+  }
+}
+
+// Get all income entries for the current user
+export async function getIncomes(timestamp?: number) {
+  try {
+    const userId = await getCurrentUserId();
+    const supabase = await createServerSupabaseClient();
+    if (!supabase) {
+      throw new Error("Failed to create Supabase client");
+    }
+
+    const { data, error } = await supabase
+      .from("incomes")
+      .select(`
+        *,
+        category:income_categories(id, name),
+        deductions:income_deductions(*),
+        hustles:income_hustles(*)
+      `)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching incomes:", error);
+      return [];
+    }
+    
+    // Calculate adjusted monthly equivalent amount with deductions and side hustles
+    if (data && data.length > 0) {
+      data.forEach(income => {
+        let totalDeductions = 0;
+        let totalHustles = 0;
+        
+        // Calculate total deductions
+        if (income.deductions && Array.isArray(income.deductions)) {
+          totalDeductions = income.deductions.reduce((sum: number, deduction: any) => {
+            return sum + (deduction.amount || 0);
+          }, 0);
+        }
+        
+        // Calculate total side hustles
+        if (income.hustles && Array.isArray(income.hustles)) {
+          totalHustles = income.hustles.reduce((sum: number, hustle: any) => {
+            return sum + (hustle.hustle_amount || 0);
+          }, 0);
+        }
+        
+        // Adjust the base amount with deductions and side hustles
+        const adjustedBaseAmount = income.amount - totalDeductions + totalHustles;
+        
+        // Recalculate monthly equivalent with the adjusted amount
+        switch (income.recurrence) {
+          case "weekly":
+            income.monthly_equivalent_amount = adjustedBaseAmount * 52 / 12;
+            break;
+          case "bi_weekly":
+            income.monthly_equivalent_amount = adjustedBaseAmount * 26 / 12;
+            break;
+          case "monthly":
+            income.monthly_equivalent_amount = adjustedBaseAmount;
+            break;
+          case "quarterly":
+            income.monthly_equivalent_amount = adjustedBaseAmount / 3;
+            break;
+          case "semi_annual":
+            income.monthly_equivalent_amount = adjustedBaseAmount / 6;
+            break;
+          case "annual":
+            income.monthly_equivalent_amount = adjustedBaseAmount / 12;
+            break;
+          default:
+            income.monthly_equivalent_amount = adjustedBaseAmount;
+        }
+        
+        // Add calculated fields for UI display
+        income.total_deductions = totalDeductions;
+        income.total_hustles = totalHustles;
+        income.adjusted_amount = adjustedBaseAmount;
+      });
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Error in getIncomes:", error);
+    return [];
+  }
+}
+
+// ...
+
+// Get total monthly income
+export async function getTotalMonthlyIncome() {
+  try {
+    // Get all incomes - monthly_equivalent_amount already includes deductions and side hustles
+    const incomes = await getIncomes();
+    
+    if (!incomes || incomes.length === 0) {
+      return 0;
+    }
+    
+    // Sum up all monthly equivalent amounts
+    const total = incomes.reduce((sum, income) => {
+      return sum + (income.monthly_equivalent_amount || 0);
+    }, 0);
+    
+    return total;
+  } catch (error) {
+    console.error("Error in getTotalMonthlyIncome:", error);
+    return 0;
+  }
+}
+
+// Calculate income diversification score using a client-side implementation
+export async function calculateIncomeDiversification() {
+  try {
+    // Get all incomes to calculate diversification
+    const incomes = await getIncomes();
+    
+    if (!incomes || incomes.length === 0) {
+      return 0; // No diversification if no income sources
+    }
+    
+    if (incomes.length === 1) {
+      return 25; // Base diversification for a single income source
+    }
+    
+    // Calculate total monthly income - monthly_equivalent_amount already includes deductions and hustles
+    const totalMonthlyIncome = incomes.reduce((sum, income) => {
+      return sum + (income.monthly_equivalent_amount || 0);
+        // Convert deductions to monthly equivalent
+        const monthlyDeductions = convertToMonthlyAmount(totalDeductions, income.recurrence);
+        monthlyAmount -= monthlyDeductions;
+      }
+      
+      // Add side hustles
+      if (income.hustles && Array.isArray(income.hustles)) {
+        const totalHustles = income.hustles.reduce((hustleSum, hustle) => {
+          return hustleSum + (hustle.hustle_amount || 0);
+        }, 0);
+        
+        // Convert side hustles to monthly equivalent
+        const monthlyHustles = convertToMonthlyAmount(totalHustles, income.recurrence);
+        monthlyAmount += monthlyHustles;
+      }
+      
+      return sum + monthlyAmount;
+    }, 0);
+    
+    if (totalMonthlyIncome <= 0) {
+      return 0;
+    }
+    
+    // Group incomes by category
+    const categoryMap = new Map<string, number>();
+    
+    incomes.forEach(income => {
+      const categoryName = income.category?.name || "Uncategorized";
+      const monthlyAmount = income.monthly_equivalent_amount || 0;
+      
+      if (categoryMap.has(categoryName)) {
+        categoryMap.set(categoryName, categoryMap.get(categoryName)! + monthlyAmount);
+      } else {
+        categoryMap.set(categoryName, monthlyAmount);
+      }
+    });
+    
+    // Calculate Herfindahl-Hirschman Index (HHI) - a measure of market concentration
+    // Lower HHI means better diversification
+    let hhi = 0;
+    
+    categoryMap.forEach((amount, category) => {
+      const marketShare = amount / totalMonthlyIncome;
+      hhi += marketShare * marketShare;
+    });
+    
+    // Convert HHI to a diversification score (0-100)
+    // HHI ranges from 1/n (perfect diversification) to 1 (complete concentration)
+    // where n is the number of categories
+    const minHHI = 1 / categoryMap.size;
+    const normalizedHHI = (hhi - minHHI) / (1 - minHHI);
+    
+    // Convert to a 0-100 score where 100 is perfect diversification
+    const diversificationScore = Math.round((1 - normalizedHHI) * 100);
+    
+    // Apply some adjustments based on number of income sources
+    const sourceCountBonus = Math.min(incomes.length * 5, 25);
+    
+    // Final score is a weighted combination
+    const finalScore = Math.min(Math.round(diversificationScore * 0.75 + sourceCountBonus), 100);
+    
+    return finalScore;
+  } catch (error) {
+    console.error("Error in calculateIncomeDiversification:", error);
+    return 50; // Return a default middle value on error
+  }
+}
+
+// Get total monthly income
+export async function getTotalMonthlyIncome() {
+  try {
+    // Get all incomes with their deductions and side hustles
+    const incomes = await getIncomes();
+    
+    if (!incomes || incomes.length === 0) {
+      return 0;
+    }
+    
+    // Calculate the total monthly income with deductions and side hustles
+    const total = incomes.reduce((sum, income) => {
+      let monthlyAmount = income.monthly_equivalent_amount || 0;
+      
+      // Subtract deductions
+      if (income.deductions && Array.isArray(income.deductions)) {
+        const totalDeductions = income.deductions.reduce((deductionSum, deduction) => {
+          return deductionSum + (deduction.amount || 0);
+        }, 0);
+        
+        // Convert deductions to monthly equivalent based on income recurrence
+        const monthlyDeductions = convertToMonthlyAmount(totalDeductions, income.recurrence);
+        monthlyAmount -= monthlyDeductions;
+      }
+      
+      // Add side hustles
+      if (income.hustles && Array.isArray(income.hustles)) {
+        const totalHustles = income.hustles.reduce((hustleSum, hustle) => {
+          return hustleSum + (hustle.hustle_amount || 0);
+        }, 0);
+        
+        // Convert side hustles to monthly equivalent based on income recurrence
+        const monthlyHustles = convertToMonthlyAmount(totalHustles, income.recurrence);
+        monthlyAmount += monthlyHustles;
+      }
+      
+      return sum + monthlyAmount;
+    }, 0);
+    
+    return total;
+  } catch (error) {
+    console.error("Error in getTotalMonthlyIncome:", error);
+    return 0;
+  }
+}

@@ -1,0 +1,36 @@
+# Global headers for all routes
+/*
+  # Security headers
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  
+  # CORS headers for cross-tab persistence
+  Access-Control-Allow-Credentials: true
+  Access-Control-Allow-Origin: https://*.netlify.app
+  Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH
+  Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type, x-csrf-token, x-requested-with
+  
+  # Cross-origin policies for better session handling
+  Cross-Origin-Embedder-Policy: unsafe-none
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+# API routes - specific headers
+/api/*
+  Cache-Control: no-cache, no-store, must-revalidate
+  Access-Control-Allow-Credentials: true
+  
+# Authentication routes - enhanced for session persistence
+/auth/*
+  Access-Control-Allow-Credentials: true
+  Access-Control-Allow-Origin: https://*.netlify.app
+  Set-Cookie: SameSite=None; Secure; Path=/; Domain=.netlify.app; Max-Age=604800
+  
+# Supabase auth routes
+/api/auth/*
+  Access-Control-Allow-Credentials: true
+  Access-Control-Allow-Origin: https://*.supabase.co
+  
+# Static assets - long cache
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable

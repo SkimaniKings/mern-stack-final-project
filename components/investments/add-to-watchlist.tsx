@@ -1,0 +1,785 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+// Using both API endpoint and server action as fallback
+import { addToWatchlist } from "@/app/actions/watchlist"
+import { toast } from "sonner"
+import { Search, Loader2, AlertTriangle, Bell } from "lucide-react"
+
+type AddToWatchlistProps = {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+type StockSearchResult = {
+  description: string
+  displaySymbol: string
+  symbol: string
+  type: string
+}
+
+type StockQuote = {
+  c: number // Current price
+  h: number // High price of the day
+  l: number // Low price of the day
+  o: number // Open price of the day
+  pc: number // Previous close price
+  d: number // Change
+  dp: number // Percent change
+}
+
+// Simple UUID generation function for client-side use
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+const SECTORS = [
+  "Technology",
+  "Healthcare",
+  "Financial Services",
+  "Consumer Cyclical",
+  "Communication Services",
+  "Industrials",
+  "Consumer Defensive",
+  "Energy",
+  "Basic Materials",
+  "Real Estate",
+  "Utilities"
+]
+
+export function AddToWatchlist({ open, onOpenChange }: AddToWatchlistProps) {
+  const [tickerValue, setTickerValue] = useState('')
+  const [nameValue, setNameValue] = useState('')
+  const [priceValue, setPriceValue] = useState('')
+  const [targetPriceValue, setTargetPriceValue] = useState('')
+  const [notesValue, setNotesValue] = useState('')
+  const [sectorValue, setSectorValue] = useState('')
+  const [priceAlertEnabled, setPriceAlertEnabled] = useState(false)
+  const [alertThresholdValue, setAlertThresholdValue] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // New states for API integration
+  const [isSearching, setIsSearching] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<StockSearchResult[]>([])
+  const [showSearchResults, setShowSearchResults] = useState(false)
+  const [isFetchingQuote, setIsFetchingQuote] = useState(false)
+  
+  // Get authenticated user ID from session API
+  const [userId, setUserId] = useState<string | null>(null)
+  
+  // Fetch stock quote and company profile when ticker is selected
+  const fetchStockQuote = async (symbol: string) => {
+    setIsFetchingQuote(true)
+    try {
+      console.log(`Fetching stock quote for ${symbol}...`)
+      // Fetch the stock quote data
+      const quoteResponse = await fetch(`/api/finnhub?symbol=${encodeURIComponent(symbol)}`, {
+        cache: 'no-store',
+        next: { revalidate: 0 },
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      })
+      
+      if (!quoteResponse.ok) {
+        const errorText = await quoteResponse.text();
+        console.error('Quote fetch failed:', errorText);
+        throw new Error(`Failed to fetch quote: ${quoteResponse.status} ${errorText}`);
+      }
+      
+      const quoteData: StockQuote = await quoteResponse.json()
+      console.log('Finnhub quote data received:', quoteData)
+      
+      // Now fetch company profile for additional data
+      console.log(`Fetching company profile for ${symbol}...`)
+      const profileResponse = await fetch(`/api/finnhub/profile?symbol=${encodeURIComponent(symbol)}`, {
+        cache: 'no-store',
+        next: { revalidate: 0 },
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      }).catch(error => {
+        console.error('Profile fetch failed:', error);
+        return null;
+      });
+      
+      let profileData = null;
+      if (profileResponse && profileResponse.ok) {
+        profileData = await profileResponse.json();
+        console.log('Company profile data received:', profileData);
+      }
+      
+      // Update form with real data from Finnhub API
+      const currentPrice = quoteData.c;
+      console.log(`Setting current price to: $${currentPrice}`);
+      setPriceValue(currentPrice.toString())
+      
+      // Calculate target price based on current price and trend
+      let targetPrice;
+      if (quoteData.dp > 0) {
+        // If price change is positive, suggest a target price 5% higher
+        targetPrice = (currentPrice * 1.05).toFixed(2);
+        console.log(`Positive trend detected. Setting target price 5% higher: $${targetPrice}`);
+      } else {
+        // If negative or flat, suggest a target price at previous close
+        targetPrice = quoteData.pc.toFixed(2);
+        console.log(`Negative/flat trend detected. Setting target price to previous close: $${targetPrice}`);
+      }
+      setTargetPriceValue(targetPrice)
+      
+      // Set price alert threshold to 5% above current price by default
+      const alertThreshold = (currentPrice * 1.05).toFixed(2);
+      console.log(`Setting alert threshold to: $${alertThreshold}`);
+      setAlertThresholdValue(alertThreshold)
+      setPriceAlertEnabled(true)
+      
+      // If we have profile data, use it to fill in more fields
+      if (profileData) {
+        // Set sector based on the company profile
+        if (profileData.finnhubIndustry) {
+          // Map Finnhub industry to our sector categories
+          const industry = profileData.finnhubIndustry;
+          let mappedSector = "Uncategorized";
+          
+          // Map common industries to our sectors
+          if (industry.match(/tech|software|semiconductor|computer|internet/i)) {
+            mappedSector = "Technology";
+          } else if (industry.match(/health|medical|pharma|biotech|hospital/i)) {
+            mappedSector = "Healthcare";
+          } else if (industry.match(/bank|insurance|financial|invest|asset|capital/i)) {
+            mappedSector = "Financial Services";
+          } else if (industry.match(/retail|consumer|apparel|luxury|auto|travel/i)) {
+            mappedSector = "Consumer Cyclical";
+          } else if (industry.match(/media|telecom|entertainment|gaming|advertising/i)) {
+            mappedSector = "Communication Services";
+          } else if (industry.match(/industrial|aerospace|defense|machinery|transport/i)) {
+            mappedSector = "Industrials";
+          } else if (industry.match(/food|beverage|household|personal|grocery/i)) {
+            mappedSector = "Consumer Defensive";
+          } else if (industry.match(/oil|gas|energy|renewable|coal|petroleum/i)) {
+            mappedSector = "Energy";
+          } else if (industry.match(/chemical|mining|metal|material/i)) {
+            mappedSector = "Basic Materials";
+          } else if (industry.match(/real estate|reit|property/i)) {
+            mappedSector = "Real Estate";
+          } else if (industry.match(/utility|electric|water|gas/i)) {
+            mappedSector = "Utilities";
+          }
+          
+          console.log(`Setting sector to: ${mappedSector} (mapped from Finnhub industry: ${industry})`);
+          setSectorValue(mappedSector);
+        }
+        
+        // Add company description to notes
+        if (profileData.name && profileData.exchange) {
+          const companyInfo = `${profileData.name} - Listed on ${profileData.exchange}\n`;
+          const marketCap = profileData.marketCapitalization ? 
+            `Market Cap: $${(profileData.marketCapitalization / 1000).toFixed(2)}B\n` : '';
+          const webUrl = profileData.weburl ? `Website: ${profileData.weburl}\n` : '';
+          
+          const notesContent = `${companyInfo}${marketCap}${webUrl}`;
+          console.log(`Setting notes with company information: ${notesContent.substring(0, 50)}...`);
+          setNotesValue(notesContent);
+        }
+      } else {
+        console.log('No profile data available, sector will be selected manually');
+      }
+      
+      toast.success(`Loaded current price: $${currentPrice.toFixed(2)}`)
+    } catch (error) {
+      console.error('Error fetching stock data:', error)
+      toast.error('Failed to fetch complete stock data. Using partial information.')
+      // Keep any data we already have, only set placeholders if needed
+      if (!priceValue) {
+        console.log('Setting fallback price value: 0');
+        setPriceValue('0')
+      }
+    } finally {
+      setIsFetchingQuote(false)
+    }
+  }
+  
+  // Select a stock from search results
+  const selectStock = (stock: StockSearchResult) => {
+    setTickerValue(stock.symbol)
+    setNameValue(stock.description)
+    setShowSearchResults(false)
+    fetchStockQuote(stock.symbol)
+  }
+
+  const resetForm = () => {
+    setTickerValue('')
+    setNameValue('')
+    setPriceValue('')
+    setTargetPriceValue('')
+    setNotesValue('')
+    setSectorValue('')
+    setPriceAlertEnabled(false)
+    setAlertThresholdValue('')
+    setSearchQuery('')
+    setSearchResults([])
+    setShowSearchResults(false)
+  }
+  
+  // Fetch user ID on component mount
+  const fetchUserId = async () => {
+    try {
+      // First try to get the user ID from localStorage
+      const storedId = localStorage.getItem('finance_user_id')
+      if (storedId) {
+        console.log('Using stored user ID:', storedId)
+        setUserId(storedId)
+        return storedId
+      }
+      
+      // Then try to get it from the session API
+      console.log('Fetching user ID from session API...')
+      const response = await fetch('/api/auth/session', {
+        cache: 'no-store',
+        next: { revalidate: 0 }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data && data.user && data.user.id) {
+          console.log('Using authenticated user ID:', data.user.id)
+          setUserId(data.user.id)
+          return data.user.id
+        }
+      }
+      
+      // If no user ID is found, generate a new one
+      const fallbackId = generateUUID()
+      console.log('No user ID found, generating new one:', fallbackId)
+      setUserId(fallbackId)
+      localStorage.setItem('finance_user_id', fallbackId)
+      return fallbackId
+    } catch (error) {
+      console.error('Error fetching user ID:', error)
+      // Generate a fallback ID if all else fails
+      const fallbackId = generateUUID()
+      console.log('Error fetching user ID, using fallback:', fallbackId)
+      setUserId(fallbackId)
+      localStorage.setItem('finance_user_id', fallbackId)
+      return fallbackId
+    }
+  }
+  
+  // Fetch user ID on component mount
+  useEffect(() => {
+    fetchUserId()
+  }, [])
+  
+  // Handle form submission
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setIsSubmitting(true)
+    
+    // Validate required fields
+    if (!tickerValue || !nameValue) {
+      toast.error('Ticker and name are required fields')
+      setIsSubmitting(false)
+      return
+    }
+    
+    // Ensure we have a user ID
+    if (!userId) {
+      await fetchUserId()
+    }
+    
+    // Log the form data being submitted
+    console.log('Submitting watchlist form with data:', {
+      ticker: tickerValue,
+      name: nameValue,
+      price: priceValue,
+      target_price: targetPriceValue,
+      notes: notesValue,
+      sector: sectorValue,
+      price_alert_enabled: priceAlertEnabled,
+      alert_threshold: alertThresholdValue
+    })
+    
+    try {
+      // First try using the server action (most reliable for database storage)
+      const formData = new FormData()
+      formData.append('ticker', tickerValue)
+      formData.append('name', nameValue)
+      formData.append('price', priceValue)
+      formData.append('target_price', targetPriceValue) // Use snake_case to match DB schema
+      formData.append('notes', notesValue)
+      formData.append('sector', sectorValue)
+      // Use price_alert_enabled to match the database schema
+      formData.append('price_alert_enabled', priceAlertEnabled.toString())
+      formData.append('alert_threshold', alertThresholdValue)
+      
+      // Ensure user ID is included
+      if (userId) {
+        formData.append('user_id', userId)
+      }
+      
+      console.log('Attempting to save via server action...')
+      // Call the server action
+      const actionResult = await addToWatchlist(formData)
+      console.log('Server action result:', actionResult)
+      
+      if (actionResult?.success) {
+        console.log('Successfully saved to database via server action')
+        toast.success("Investment added to watchlist database")
+        resetForm()
+        onOpenChange(false)
+        // Refresh the page to show the new item
+        window.location.reload()
+        return
+      }
+      
+      // If server action failed, try the API endpoint
+      console.log('Server action failed, trying API endpoint')
+      
+      // Get the user ID from localStorage or use the one we already have
+      const storedUserId = userId || localStorage.getItem('finance_user_id') || generateUUID()
+      // Store the user ID in localStorage for future use
+      if (!localStorage.getItem('finance_user_id')) {
+        localStorage.setItem('finance_user_id', storedUserId)
+      }
+      console.log('Using user ID for API request:', storedUserId)
+      
+      // Prepare the data to send to the API
+      const data = {
+        ticker: tickerValue,
+        name: nameValue,
+        // Use the price from the form input, or default to 0 if not available
+        price: priceValue ? parseFloat(priceValue) : 0,
+        targetPrice: targetPriceValue ? parseFloat(targetPriceValue) : null,
+        notes: notesValue,
+        sector: sectorValue || "Uncategorized", // Ensure sector is never empty
+        // Use price_alert_enabled to match the database schema
+        price_alert_enabled: priceAlertEnabled,
+        alertThreshold: alertThresholdValue ? parseFloat(alertThresholdValue) : null,
+        userId: storedUserId // Use the consistent user ID
+      }
+      
+      try {
+        console.log('Sending data to API endpoint:', data)
+        // Set a client-id cookie to ensure consistent user identification
+        document.cookie = `client-id=${storedUserId}; path=/; max-age=${60*60*24*365}; SameSite=Lax`
+        
+        const response = await fetch('/api/watchlist/add', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': storedUserId,
+            'X-Client-ID': storedUserId,
+            'X-Auth-User-ID': storedUserId
+          },
+          body: JSON.stringify(data)
+        })
+        
+        console.log('API response status:', response.status)
+        
+        if (!response.ok) {
+          console.error(`API error: ${response.status} ${response.statusText}`)
+          let errorMessage = `Failed to add ${tickerValue} to watchlist`
+          
+          try {
+            const errorData = await response.json()
+            if (errorData && errorData.error) {
+              errorMessage = errorData.error
+              console.error('API error details:', errorData)
+            }
+          } catch (e) {
+            console.error('Could not parse error response:', e)
+          }
+          
+          toast.error(errorMessage)
+          setIsSubmitting(false)
+          return
+        }
+        
+        const result = await response.json()
+        console.log('API response data:', result)
+        
+        if (result.success) {
+          // Check if we need to store the item in localStorage
+          if (result.storageMethod === "client" && result.item) {
+            console.log("Storing item in localStorage", result.item)
+            
+            // Get existing watchlist items from localStorage
+            let watchlistItems = []
+            const existingItems = localStorage.getItem('watchlist')
+            
+            if (existingItems) {
+              try {
+                watchlistItems = JSON.parse(existingItems)
+                if (!Array.isArray(watchlistItems)) {
+                  watchlistItems = []
+                }
+              } catch (e) {
+                console.error("Error parsing existing watchlist items", e)
+                watchlistItems = []
+              }
+            }
+            
+            // Add the new item to the watchlist
+            watchlistItems.push(result.item)
+            
+            // Save the updated watchlist to localStorage
+            localStorage.setItem('watchlist', JSON.stringify(watchlistItems))
+            console.log('Updated localStorage watchlist items, new count:', watchlistItems.length)
+          }
+          
+          toast.success(result.message || `${tickerValue} added to watchlist`)
+          resetForm()
+          onOpenChange(false)
+          // Reload the page to show the updated watchlist
+          console.log('Reloading page to show updated watchlist')
+          window.location.reload()
+        } else {
+          console.error('API returned success: false', result)
+          toast.error(result.error || `Failed to add ${tickerValue} to watchlist`)
+        }
+      } catch (apiError) {
+        console.error('API request error:', apiError)
+        toast.error(`Network error: Could not connect to the server`)
+      }
+    } catch (error) {
+      toast.error("An unexpected error occurred")
+      console.error("Error in watchlist submission:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+  
+  // Handle search input change
+  const handleSearchChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value
+    setSearchQuery(query)
+    
+    if (query.length < 2) {
+      setSearchResults([])
+      setShowSearchResults(false)
+      return
+    }
+    
+    setIsSearching(true)
+    
+    try {
+      const response = await fetch(`/api/finnhub/search?query=${encodeURIComponent(searchQuery)}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data && data.result && Array.isArray(data.result)) {
+          console.log(`Found ${data.result.length} search results for "${query}"`)
+          setSearchResults(data.result)
+          setShowSearchResults(true)
+        } else {
+          setSearchResults([])
+          setShowSearchResults(false)
+        }
+      } else {
+        console.error('Search API error:', response.status, response.statusText)
+        setSearchResults([])
+        setShowSearchResults(false)
+      }
+    } catch (error) {
+      console.error('Error searching stocks:', error)
+      setIsSearching(false)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+  
+  // Handle ticker input change
+  const handleTickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.toUpperCase()
+    setSearchQuery(value)
+    setTickerValue(value)
+  }
+  
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>Add to Watchlist</DialogTitle>
+          <DialogDescription>
+            Add a stock or investment to your watchlist for tracking.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="ticker" className="text-right">
+                Ticker Symbol
+              </Label>
+              <div className="col-span-3 relative">
+                <div className="flex items-center space-x-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="ticker"
+                      name="ticker"
+                      value={searchQuery}
+                      onChange={handleSearchChange}
+                      placeholder="Search by ticker or company name"
+                      className="pr-8"
+                      autoComplete="off"
+                    />
+                    {isSearching ? (
+                      <Loader2 className="h-4 w-4 animate-spin absolute right-2 top-3 text-muted-foreground" />
+                    ) : (
+                      <Search className="h-4 w-4 absolute right-2 top-3 text-muted-foreground" />
+                    )}
+                  </div>
+                  {tickerValue && (
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      className="h-10"
+                      onClick={() => fetchStockQuote(tickerValue)}
+                      disabled={isFetchingQuote}
+                    >
+                      {isFetchingQuote ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        'Refresh Data'
+                      )}
+                    </Button>
+                  )}
+                </div>
+                
+                {showSearchResults && searchResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-background border rounded-md shadow-lg max-h-60 overflow-auto">
+                    <ul className="py-1">
+                      {searchResults.map((result, index) => (
+                        <li 
+                          key={`${result.symbol}-${index}`}
+                          className="px-4 py-2 hover:bg-muted cursor-pointer flex justify-between items-center"
+                          onClick={() => selectStock(result)}
+                        >
+                          <div>
+                            <span className="font-medium">{result.symbol}</span>
+                            <p className="text-sm text-muted-foreground truncate">{result.description}</p>
+                          </div>
+                          <span className="text-xs bg-secondary px-2 py-1 rounded">{result.type}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right">
+                Company Name
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="name"
+                  name="name"
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  placeholder="Company or investment name"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="price" className="text-right">
+                Current Price
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="price"
+                  name="price"
+                  type="number"
+                  step="0.01"
+                  value={priceValue}
+                  onChange={(e) => setPriceValue(e.target.value)}
+                  placeholder="Current market price"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="targetPrice" className="text-right">
+                Target Price
+              </Label>
+              <div className="col-span-3">
+                <Input
+                  id="targetPrice"
+                  name="targetPrice"
+                  type="number"
+                  step="0.01"
+                  value={targetPriceValue}
+                  onChange={(e) => setTargetPriceValue(e.target.value)}
+                  placeholder="Your target price for this investment"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="sector" className="text-right">
+                Sector
+              </Label>
+              <div className="col-span-3">
+                <Select value={sectorValue} onValueChange={setSectorValue}>
+                  <SelectTrigger id="sector" name="sector">
+                    <SelectValue placeholder="Select a sector" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECTORS.map((sector) => (
+                      <SelectItem key={sector} value={sector}>
+                        {sector}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="Uncategorized">Uncategorized</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="notes" className="text-right">
+                Notes
+              </Label>
+              <div className="col-span-3">
+                <Textarea
+                  id="notes"
+                  name="notes"
+                  value={notesValue}
+                  onChange={(e) => setNotesValue(e.target.value)}
+                  placeholder="Add any notes about this investment"
+                  className="min-h-[100px]"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <div className="text-right">
+                <Label htmlFor="priceAlerts">Price Alerts</Label>
+              </div>
+              <div className="flex items-center space-x-2 col-span-3">
+                <Switch
+                  id="priceAlerts"
+                  name="priceAlerts"
+                  checked={priceAlertEnabled}
+                  onCheckedChange={setPriceAlertEnabled}
+                />
+                <Label htmlFor="priceAlerts">Enable price alerts</Label>
+              </div>
+            </div>
+            
+            {priceAlertEnabled && (
+              <div className="grid grid-cols-4 items-center gap-4 mt-2">
+                <Label htmlFor="alertThreshold" className="text-right">
+                  Alert Threshold
+                </Label>
+                <div className="col-span-3 space-y-2">
+                  <Input
+                    id="alertThreshold"
+                    name="alertThreshold"
+                    type="number"
+                    step="0.01"
+                    value={alertThresholdValue}
+                    onChange={(e) => setAlertThresholdValue(e.target.value)}
+                    placeholder="Price threshold for alerts"
+                  />
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm text-muted-foreground">
+                      You'll be notified when the price reaches this threshold.
+                    </p>
+                    
+                    {priceValue && alertThresholdValue && (
+                      <div className="text-sm">
+                        <span className={`${parseFloat(alertThresholdValue) > parseFloat(priceValue) ? 'text-amber-500' : 'text-green-500'}`}>
+                          {parseFloat(alertThresholdValue) > parseFloat(priceValue) ? (
+                            <>
+                              <AlertTriangle className="inline h-3 w-3 mr-1" />
+                              {((parseFloat(alertThresholdValue) - parseFloat(priceValue)) / parseFloat(priceValue) * 100).toFixed(2)}% above current price
+                            </>
+                          ) : (
+                            <>
+                              <Bell className="inline h-3 w-3 mr-1" />
+                              Alert will trigger immediately (price is already above threshold)
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    
+                    <div className="flex space-x-2 mt-1">
+                      {priceValue && (
+                        <>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm"
+                            className="text-xs h-7 px-2"
+                            onClick={() => setAlertThresholdValue((parseFloat(priceValue) * 1.05).toFixed(2))}
+                          >
+                            +5%
+                          </Button>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm"
+                            className="text-xs h-7 px-2"
+                            onClick={() => setAlertThresholdValue((parseFloat(priceValue) * 1.1).toFixed(2))}
+                          >
+                            +10%
+                          </Button>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm"
+                            className="text-xs h-7 px-2"
+                            onClick={() => setAlertThresholdValue((parseFloat(priceValue) * 1.2).toFixed(2))}
+                          >
+                            +20%
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Adding..." : "Add to Watchlist"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -1,0 +1,17 @@
+# Authentication routes - handle without proxy interference
+/api/auth/* 200! Role=anon
+/auth/* 200! Role=anon
+
+# Supabase auth callback routes
+/auth/callback 200! Role=anon
+/auth/confirm 200! Role=anon
+
+# API routes
+/api/* 200! Role=anon
+
+# Static assets
+/_next/static/* 200! Cache-Control=public,max-age=31536000,immutable
+/favicon.ico 200! Cache-Control=public,max-age=86400
+
+# SPA fallback for client-side routing
+/* /index.html 200

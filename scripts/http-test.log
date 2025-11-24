@@ -1,0 +1,6 @@
+HTTP Test Log - 2025-05-31T08:31:48.849Z
+
+[2025-05-31T08:31:48.853Z] Starting HTTP test...
+[2025-05-31T08:31:48.865Z] Successfully read .env.local file
+[2025-05-31T08:31:48.867Z] Supabase URL found in .env.local
+[2025-05-31T08:31:48.868Z] Supabase API key found in .env.local

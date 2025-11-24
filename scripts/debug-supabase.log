@@ -1,0 +1,10 @@
+=== Supabase Debug Log - 2025-05-31T08:27:11.246Z ===
+
+[2025-05-31T08:27:11.249Z] Starting Supabase debug script...
+[2025-05-31T08:27:11.254Z] Successfully read .env.local file
+[2025-05-31T08:27:11.255Z] Environment variables:
+{
+  "supabaseUrl": "*** URL found (hidden for security)",
+  "supabaseKey": "*** Key found (hidden for security)"
+}
+[2025-05-31T08:27:11.256Z] Initializing Supabase client...
