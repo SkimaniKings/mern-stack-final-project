@@ -6,6 +6,8 @@
 
 Dripcheck is a comprehensive personal finance management application designed to help users take control of their financial life. Built with Next.js, TypeScript, and Supabase, it offers a wide range of features from expense tracking to investment management, all in a secure and user-friendly interface.
 
+### Project Live Link: https://dripchecks.netlify.app/
+
 ## 🌟 Key Features
 
 ### User Authentication & Security 🔐
@@ -219,10 +221,6 @@ pnpm test
 - API routes include validation to prevent malicious inputs
 - Client-side persistent ID management ensures consistent user identification
 
-## 🔄 Recent Updates
-
-See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes and updates.
-
 ### Notable Recent Fixes
 
 #### Watchlist System Fixes
@@ -252,7 +250,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📞 Support
 
-If you encounter any issues or have questions, please open an issue on GitHub or contact the development team at support@dripcheck.example.com.
+If you encounter any issues or have questions, please open an issue on GitHub or contact me at simonkimanisimon007@gmail.com
 
 ---
 
