@@ -1,7 +1,6 @@
 # Dripcheck: Ultimate Personal Finance Tracker
 
 
-
 ## 📊 Overview
 
 Dripcheck is a comprehensive personal finance management application designed to help users take control of their financial life. Built with Next.js, TypeScript, and Supabase, it offers a wide range of features from expense tracking to investment management, all in a secure and user-friendly interface.
@@ -11,7 +10,6 @@ Dripcheck is a comprehensive personal finance management application designed to
 ## 🌟 Key Features
 
 ### User Authentication & Security 🔐
-- Secure email/password authentication via Supabase Auth
 - JWT-based session management with proper expiration and refresh logic
 - Strict server-side user identification only (no client-side fallback), ensuring consistent and secure user IDs across frontend and backend
 - Comprehensive 401 handling when unauthenticated, protecting all finance data
@@ -90,12 +88,6 @@ Dripcheck is a comprehensive personal finance management application designed to
   - Recharts
   - D3.js
 
-### Backend
-- **API Routes**: Next.js API Routes
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **Storage**: Supabase Storage
-- **External APIs**: Finnhub for financial data
 
 ### DevOps
 - **Deployment**: Netlify
@@ -107,7 +99,6 @@ Dripcheck is a comprehensive personal finance management application designed to
 ### Prerequisites
 - Node.js 18.x or higher
 - npm, yarn, or pnpm
-- Supabase account for database and authentication
 - Finnhub API key for investment data
 
 ### Environment Setup
@@ -130,9 +121,6 @@ Dripcheck is a comprehensive personal finance management application designed to
 3. Set up environment variables
    Create a `.env.local` file in the root directory with the following variables:
    ```
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   FINNHUB_API_KEY=your_finnhub_api_key
    ```
 
 4. Run the development server
@@ -145,14 +133,6 @@ Dripcheck is a comprehensive personal finance management application designed to
    ```
 
 5. Open [http://localhost:3000](http://localhost:3000) with your browser to see the application
-
-### Database Setup
-
-The application requires a Supabase database with specific tables and schemas. To set up the database:
-
-1. Create a new project in Supabase
-2. Run the migration scripts located in the `supabase/migrations` directory
-3. Alternatively, you can manually create the required tables using the SQL scripts in the `supabase/db` directory
 
 ## 📁 Project Structure
 
@@ -179,14 +159,6 @@ The application requires a Supabase database with specific tables and schemas. T
 ```
 
 ## 🔧 Configuration
-
-### Supabase Configuration
-
-The application uses Supabase for database, authentication, and storage. The configuration is located in:
-
-- `lib/supabase/client.ts` - Client-side Supabase client
-- `lib/supabase/server.ts` - Server-side Supabase client
-- `supabase/config.toml` - Supabase configuration
 
 ### Netlify Configuration
 
@@ -215,8 +187,6 @@ pnpm test
 3. Add the required environment variables in Netlify's dashboard
 
 ## 🛡️ Security Considerations
-
-- The application implements Row Level Security (RLS) in Supabase to ensure data privacy
 - Authentication uses secure JWT tokens with proper expiration
 - API routes include validation to prevent malicious inputs
 - Client-side persistent ID management ensures consistent user identification
